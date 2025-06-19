@@ -18,18 +18,28 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
-model = Siamese()
-try:
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
-    model.eval()
-    model.to(DEVICE)
-except Exception as e:
-    print(f"Error loading model: {e}")
-    exit(1)
-
+# Class label → reference image paths
 class_to_images = {}
 
+# Lazy-loaded model
+model = None
+
+def get_model():
+    """Loads and returns the Siamese model only when needed."""
+    global model
+    if model is None:
+        if not os.path.exists(MODEL_PATH):
+            raise RuntimeError(f"Model file {MODEL_PATH} not found.")
+        print("🔁 Loading Siamese model...")
+        m = Siamese()
+        m.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+        m.eval()
+        m.to(DEVICE)
+        model = m
+    return model
+
 def load_reference_images(reference_dir):
+    """Scans training dir and maps class labels to image file paths."""
     global class_to_images
     class_to_images = {}
     if not os.path.isdir(reference_dir):
@@ -43,24 +53,25 @@ def load_reference_images(reference_dir):
         if images:
             class_to_images[class_name] = images
 
+# Load once at startup
 load_reference_images(REFERENCE_DIR)
 
 @router.get("/")
-async def read_root():
-    return {"message": "Welcome to the Siamese Network Inference API. Use /predict/image to classify an image."}
+async def root():
+    return {"message": "Siamese model inference API ready. POST to /predict/image."}
 
 @router.post("/predict/image/")
 async def predict_image(file: UploadFile = File(...)):
+    """Predicts roof type by comparing input image to reference images."""
     if not class_to_images:
-        raise HTTPException(
-            status_code=503,
-            detail="Reference images not loaded."
-        )
+        raise HTTPException(status_code=503, detail="No reference images loaded.")
 
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents)).convert('L')
         img_tensor = transform(img).unsqueeze(0).to(DEVICE)
+
+        model = get_model()  # Lazy-load here
 
         scores = {}
         with torch.no_grad():
@@ -79,8 +90,9 @@ async def predict_image(file: UploadFile = File(...)):
             "predicted_class": predicted_class,
             "similarity_scores": {cls: round(score, 4) for cls, score in scores.items()}
         })
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during prediction: {e}")
+        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
 
 @router.post("/reload_references/")
 async def reload_references():
@@ -88,4 +100,4 @@ async def reload_references():
         load_reference_images(REFERENCE_DIR)
         return JSONResponse(content={"message": "Reference images reloaded."})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reload references: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reload: {e}")
