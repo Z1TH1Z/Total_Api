@@ -1,8 +1,0 @@
-torch
-pillow
-fastapi
-easyocr
-cv2
-numpy
-regex
-random 
