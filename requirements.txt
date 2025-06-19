@@ -1,9 +1,10 @@
 fastapi~=0.115.12
-easyocr~=1.7.2
-numpy~=2.3.0
+uvicorn~=0.34.3
 torch~=2.7.1
 torchvision~=0.22.1
+easyocr~=1.7.2
+opencv-python
+numpy~=2.3.0
 pillow~=11.2.1
-uvicorn~=0.34.3
 python-multipart~=0.0.20
 requests
